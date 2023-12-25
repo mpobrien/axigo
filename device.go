@@ -3,8 +3,9 @@ package main
 import (
 	"bufio"
 	"errors"
-	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"go.bug.st/serial"
 	"go.bug.st/serial/enumerator"
@@ -17,7 +18,6 @@ type Device struct {
 
 func (dvc *Device) Command(params ...string) (string, error) {
 	out := strings.Join(params, ",")
-	fmt.Println("sending command: [", out, "]")
 	_, err := dvc.port.Write([]byte(out))
 	if err != nil {
 		return "", err
@@ -26,14 +26,52 @@ func (dvc *Device) Command(params ...string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	fmt.Println("waiting for reply")
 	s, err := dvc.bufReader.ReadString('\n')
-	fmt.Println("got reply", s)
 	return s, err
 }
 
+type Commander interface {
+	SteppersOn() error
+	SteppersOff() error
+	PenUp() error
+	PenDown() error
+	Move(stepsX, stepsY int, duration time.Duration) error
+	Raw(command ...string) (string, error)
+}
+
+type deviceCommander struct {
+	*Device
+}
+
+func (dc *deviceCommander) SteppersOn() error {
+	_, err := dc.Command("EM", "1", "1")
+	return err
+}
+func (dc *deviceCommander) SteppersOff() error {
+	_, err := dc.Command("EM", "0", "0")
+	return err
+}
+
+func (dc *deviceCommander) PenUp() error {
+	_, err := dc.Command("SP", "1", "0")
+	return err
+}
+
+func (dc *deviceCommander) PenDown() error {
+	_, err := dc.Command("SP", "0", "0")
+	return err
+}
+func (dc *deviceCommander) Move(stepsX, stepsY int, duration time.Duration) error {
+	_, err := dc.Command("XM", strconv.Itoa(int(duration.Milliseconds())), strconv.Itoa(stepsX), strconv.Itoa(stepsY))
+	return err
+}
+
+func (dc *deviceCommander) Raw(command ...string) (string, error) {
+	result, err := dc.Command(command...)
+	return result, err
+}
+
 func findAxiDrawPort() (*enumerator.PortDetails, error) {
-	//VID_PID = '04D8:FD92'
 	ports, err := enumerator.GetDetailedPortsList()
 	if err != nil {
 		return nil, err
@@ -43,7 +81,7 @@ func findAxiDrawPort() (*enumerator.PortDetails, error) {
 			return port, nil
 		}
 	}
-	return nil, errors.New("No AxiDraw connection detected.")
+	return nil, errors.New("no AxiDraw connection detected.")
 }
 func OpenDevice() (*Device, error) {
 	portInfo, err := findAxiDrawPort()
